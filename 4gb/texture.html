@@ -92,7 +92,7 @@ test(texSubImage2D, _2GB-PAGE_SIZE, _2GB-PAGE_SIZE-4); // Test 2GB Wasm limit
 test(texSubImage2D, _4GB-PAGE_SIZE, _4GB-PAGE_SIZE-4); // Test 4GB Wasm limit
 
 // Test a Wasm program that might use up to 16GB of RAM in Memory64 mode: https://github.com/WebAssembly/memory64
-// Although currently this fails in Chrome Canary due to https://github.com/WebAssembly/memory64/issues/42
+// Although currently this fails in Chrome Canary due to https://crbug.com/v8/4153
 test(texImage2D, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-4);
 test(texSubImage2D, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-4);
 

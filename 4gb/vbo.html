@@ -56,7 +56,7 @@ test(bufferSubData, _2GB-PAGE_SIZE, _2GB-PAGE_SIZE-3, 3);
 test(bufferSubData, _4GB-PAGE_SIZE, _4GB-PAGE_SIZE-3, 3);
 
 // Test a Wasm program that might use up to 16GB of RAM in Memory64 mode: https://github.com/WebAssembly/memory64
-// Although currently this fails in Chrome Canary due to https://github.com/WebAssembly/memory64/issues/42
+// Although currently this fails in Chrome Canary due to https://crbug.com/v8/4153
 test(bufferData, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-3, 3);
 test(bufferSubData, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-3, 3);
 
