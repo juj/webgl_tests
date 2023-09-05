@@ -1,0 +1,63 @@
+<html><body><script>
+let clear = (heap, offset, len) => { for(let i = 0; i < len; ++i) heap[offset+i] = 0; }
+let fill  = (heap, offset, len) => { for(let i = 0; i < len; ++i) heap[offset+i] = i; }
+let check = (heap, offset, len) => { for(let i = 0; i < len; ++i) if (heap[offset+i] != (i&0xFF)) throw `Heap address 0x${(offset+i).toString(16)} expected ${i&0xFF}, got ${heap[offset+i]}`; }
+
+const PAGE_SIZE = 65536;
+const _2GB = 2*1024*1024*1024;
+const _4GB = 4*1024*1024*1024;
+const _16GB = 16*1024*1024*1024;
+
+function setup(heapSize, offset, length) {
+  try {
+    var heap = new Uint8Array(new WebAssembly.Memory({ index: heapSize > _4GB ? 'i64' : undefined, initial: (heapSize+PAGE_SIZE-1)/PAGE_SIZE }).buffer);
+  } catch(e) {
+    // Attempt a workaround to https://github.com/WebAssembly/memory64/issues/42 . This try-catch can be removed once https://github.com/WebAssembly/memory64/pull/41 lands.
+    heap = new Uint8Array(new WebAssembly.Memory({ index: 'u64', initial: (heapSize+PAGE_SIZE-1)/PAGE_SIZE }).buffer);
+  }
+  fill(heap, offset, length);
+  let gl = document.createElement('canvas').getContext('webgl2');  
+  return [heap, gl];
+}
+
+function bufferData(heapSize, offset, length) {
+  let [heap, gl] = setup(heapSize, offset, length);
+  let buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, heap, gl.STATIC_DRAW, offset, length);
+  clear(heap, offset, length);
+  gl.getBufferSubData(gl.ARRAY_BUFFER, 0, heap, offset, length);
+  if (gl.error = gl.getError()) throw `Test failed on GL error ${gl.error}!`;
+  check(heap, offset, length);
+  console.log(`bufferData(heapSize=${heapSize}, offset=${offset}, length=${length}) passed.`);
+}
+
+function bufferSubData(heapSize, offset, length) {
+  let [heap, gl] = setup(heapSize, offset, length);
+  let buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  const randomOffset = 17;
+  gl.bufferData(gl.ARRAY_BUFFER, length+randomOffset, gl.STATIC_DRAW);
+  gl.bufferSubData(gl.ARRAY_BUFFER, randomOffset, heap, offset, length);
+  clear(heap, offset, length);
+  gl.getBufferSubData(gl.ARRAY_BUFFER, randomOffset, heap, offset, length);
+  if (gl.error = gl.getError()) throw `Test failed on GL error ${gl.error}!`;
+  check(heap, offset, length);
+  console.log(`test(bufferSubData, heapSize=${heapSize}, offset=${offset}, length=${length}) passed.`);
+}
+let test = (fn, ...args) => { try { fn(...args); } catch(e) { console.error(`Test failed! ${e}`); }}
+
+test(bufferData, PAGE_SIZE, PAGE_SIZE-3, 3); // Test naive conditions
+test(bufferData, _2GB-PAGE_SIZE, _2GB-PAGE_SIZE-3, 3); // Test 2GB Wasm limit
+test(bufferData, _4GB-PAGE_SIZE, _4GB-PAGE_SIZE-3, 3); // Test 4GB Wasm limit
+
+test(bufferSubData, PAGE_SIZE, PAGE_SIZE-3, 3);
+test(bufferSubData, _2GB-PAGE_SIZE, _2GB-PAGE_SIZE-3, 3);
+test(bufferSubData, _4GB-PAGE_SIZE, _4GB-PAGE_SIZE-3, 3);
+
+// Test a Wasm program that might use up to 16GB of RAM in Memory64 mode: https://github.com/WebAssembly/memory64
+// Although currently this fails in Chrome Canary due to https://github.com/WebAssembly/memory64/issues/42
+test(bufferData, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-3, 3);
+test(bufferSubData, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-3, 3);
+
+</script><body></html>

@@ -1,0 +1,99 @@
+<html><body><script>
+let checkArraysEqual = (arr1, arr2) => { if (arr1.length != arr2.length) throw `Array lengths not equal! (${arr1.length} vs ${arr2.length})`; for(let i = 0; i < arr1.length; ++i) if (arr1[i] != arr2[i]) throw `Arrays differ at position ${i}: arr1: ${arr1[i]}, arr2: ${arr2[i]}`; }
+
+const PAGE_SIZE = 65536;
+const _2GB = 2*1024*1024*1024;
+const _4GB = 4*1024*1024*1024;
+const _16GB = 16*1024*1024*1024;
+
+function compileShader(gl, type, src) {
+  let shader = gl.createShader(type);
+  gl.shaderSource(shader, src);
+  gl.compileShader(shader);
+  let log = gl.getShaderInfoLog(shader);
+  if (log) console.error(log);
+  return shader;
+}
+
+function createProgram(gl, vs, fs) {
+  let program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.bindAttribLocation(program, 0, 'pos');
+  gl.linkProgram(program);
+  gl.useProgram(program);
+  return program;
+}
+
+function setup(heapSize) {
+  try {
+    var heap = new Uint8Array(new WebAssembly.Memory({ index: heapSize > _4GB ? 'i64' : undefined, initial: (heapSize+PAGE_SIZE-1)/PAGE_SIZE }).buffer);
+  } catch(e) {
+    // Attempt a workaround to https://github.com/WebAssembly/memory64/issues/42 . This try-catch can be removed once https://github.com/WebAssembly/memory64/pull/41 lands.
+    heap = new Uint8Array(new WebAssembly.Memory({ index: 'u64', initial: (heapSize+PAGE_SIZE-1)/PAGE_SIZE }).buffer);
+  }
+  let gl = document.createElement('canvas').getContext('webgl2');
+  document.body.appendChild(gl.canvas);
+
+  let program = createProgram(gl,
+    compileShader(gl, gl.VERTEX_SHADER, `
+      varying vec2 uv;
+      attribute vec2 pos;
+      void main() { uv = pos; gl_Position = vec4(pos*2.0-vec2(1.0,1.0),0,1); }`),
+    compileShader(gl, gl.FRAGMENT_SHADER, `
+      precision lowp float;
+      uniform sampler2D tex;
+      varying vec2 uv;
+      void main() { gl_FragColor = texture2D(tex,uv); }`));
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, 0, 0);
+  gl.enableVertexAttribArray(0);
+
+  let texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+
+  return [heap, gl, program, texture];
+}
+
+function texImage2D(heapSize, offset) {
+  let [heap, gl, program, texture] = setup(heapSize);
+  heap.set([42, 84, 128, 255], offset);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, heap, offset);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  heap.set([0,0,0,0], offset);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, heap, offset);
+  if (gl.error = gl.getError()) throw `Test failed on GL error ${gl.error}!`;
+  checkArraysEqual(heap.subarray(offset, offset+4), [42, 84, 128, 255]);
+  console.log(`texImage2D(heapSize=${heapSize}, offset=${offset}) passed.`);
+}
+
+function texSubImage2D(heapSize, offset) {
+  let [heap, gl, program, texture] = setup(heapSize);
+  heap.set([42, 84, 128, 255], offset);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, heap, offset);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  heap.set([0,0,0,0], offset);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, heap, offset);
+  if (gl.error = gl.getError()) throw `Test failed on GL error ${gl.error}!`;
+  checkArraysEqual(heap.subarray(offset, offset+4), [42, 84, 128, 255]);
+  console.log(`texImage2D(heapSize=${heapSize}, offset=${offset}) passed.`);
+}
+let test = (fn, ...args) => { try { fn(...args); } catch(e) { console.error(`Test failed! ${e}`); }}
+
+test(texImage2D, PAGE_SIZE, PAGE_SIZE-4); // Test naive conditions
+test(texImage2D, _2GB-PAGE_SIZE, _2GB-PAGE_SIZE-4); // Test 2GB Wasm limit
+test(texImage2D, _4GB-PAGE_SIZE, _4GB-PAGE_SIZE-4); // Test 4GB Wasm limit
+
+test(texSubImage2D, PAGE_SIZE, PAGE_SIZE-4); // Test naive conditions
+test(texSubImage2D, _2GB-PAGE_SIZE, _2GB-PAGE_SIZE-4); // Test 2GB Wasm limit
+test(texSubImage2D, _4GB-PAGE_SIZE, _4GB-PAGE_SIZE-4); // Test 4GB Wasm limit
+
+// Test a Wasm program that might use up to 16GB of RAM in Memory64 mode: https://github.com/WebAssembly/memory64
+// Although currently this fails in Chrome Canary due to https://github.com/WebAssembly/memory64/issues/42
+test(texImage2D, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-4);
+test(texSubImage2D, _16GB-PAGE_SIZE, _16GB-PAGE_SIZE-4);
+
+</script><body></html>
